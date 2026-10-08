@@ -218,3 +218,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+brief.md
+
+# Local SQLite database (rebuilt from the CSV)
+migration.db
