@@ -1,0 +1,6 @@
+pandas
+streamlit
+google-genai
+requests
+faker
+python-dotenv
