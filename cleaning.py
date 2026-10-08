@@ -23,6 +23,8 @@ MUST_HAVE_FIELDS = REQUIRED_FIELDS + ["booking_date"]
 DATE_FORMATS = ["%d/%m/%Y", "%Y-%m-%d", "%d %b %y"]
 
 # How alike two names must be (0 to 1) to count as the same person.
+# 0.85 was enough to catch one missing or swapped letter in the test data
+# (e.g. "Vitti Badal" vs "Vritti Badal") without matching different people.
 NAME_SIMILARITY = 0.85
 
 
@@ -31,7 +33,7 @@ NAME_SIMILARITY = 0.85
 
 def is_blank(value):
     """True if the cell is empty (None, NaN or only spaces)."""
-    if value is None or pd.isna(value):
+    if pd.isna(value):   # True for None and for NaN (pandas' "empty")
         return True
     return str(value).strip() == ""
 
@@ -78,6 +80,8 @@ def clean_phone(value):
             digits = digits + character
 
     # Remove the country code or leading zero, so only the 9-digit local number is left.
+    # We check the length too, not just the start, so we only remove a prefix when the rest
+    # is a full number. Otherwise a short or strange number could be chopped by mistake.
     if digits.startswith("00971") and len(digits) == 14:
         digits = digits[5:]
     elif digits.startswith("971") and len(digits) == 12:
@@ -129,6 +133,8 @@ def clean_amount(value):
     except ValueError:
         return None  # not a number, e.g. "free"
 
+    # Computers store decimals slightly inexactly ("1.005k" comes out as 1004.9999999999999),
+    # so we round to 2 decimal places.
     return round(number * multiplier, 2)
 
 
@@ -146,10 +152,18 @@ def clean_status(value):
 
 def is_valid_email(email):
     """Simple check: one @, something before it, and a dot after it. No spaces."""
-    if " " in email or email.count("@") != 1:
+    if " " in email:
         return False
-    before, after = email.split("@")
-    return before != "" and "." in after and not after.startswith(".") and not after.endswith(".")
+    if email.count("@") != 1:
+        return False
+    before, after = email.split("@")   # "aimee@mail.com" -> "aimee", "mail.com"
+    if before == "":
+        return False                   # nothing before the @
+    if "." not in after:
+        return False                   # no dot after the @
+    if after.startswith(".") or after.endswith("."):
+        return False                   # e.g. "a@.com" or "a@mail."
+    return True
 
 
 # Which cleaning function to use for each field.
@@ -256,7 +270,9 @@ def clean_and_validate(df):
         travel_date = cleaned.at[i, "travel_date"]
         amount = cleaned.at[i, "amount_aed"]
 
-        # Must-have fields are empty
+        # Must-have fields are empty.
+        # We look at the original cell, not the cleaned one. If a date was there but unreadable,
+        # it's already flagged as "could not be understood", so we don't also call it "missing".
         for field in MUST_HAVE_FIELDS:
             if is_blank(original.at[i, field]):
                 issues[i].append((f"missing {field}", f"{field} is missing."))
@@ -281,6 +297,8 @@ def clean_and_validate(df):
     # ----- Step 3: find likely duplicates -----
     # Same person = similar name AND same email or same phone.
     # The first row is kept; later copies are flagged.
+    # We keep the first copy in the file, not the "best spelled" one. A person reviews
+    # the flagged rows anyway and can swap them if needed.
     kept_rows = []  # rows we've seen that are not duplicates
 
     for i in range(number_of_rows):
@@ -296,11 +314,11 @@ def clean_and_validate(df):
         for j in kept_rows:
             same_email = not is_blank(email) and email == cleaned.at[j, "email"]
             same_phone = not is_blank(phone) and phone == cleaned.at[j, "phone"]
-            same_name = similar_names(normalise_name(name), normalise_name(cleaned.at[j, "customer_name"]))
+            other_name = cleaned.at[j, "customer_name"]
+            same_name = similar_names(normalise_name(name), normalise_name(other_name))
 
             if (same_email or same_phone) and same_name:
-                first_name = cleaned.at[j, "customer_name"]
-                message = f"Likely duplicate of row {j + 1} ({first_name})."
+                message = f"Likely duplicate of row {j + 1} ({other_name})."
                 issues[i].append(("likely duplicate", message))
                 is_duplicate = True
                 break  # one match is enough
@@ -311,12 +329,20 @@ def clean_and_validate(df):
     # ----- Step 4: split into clean rows and flagged rows -----
     issue_text = []
     for row_issues in issues:
-        messages = [message for reason, message in row_issues]
+        messages = []
+        for reason, message in row_issues:
+            messages.append(message)
         issue_text.append("; ".join(messages))  # "" if the row has no problems
     cleaned["issues"] = issue_text
 
-    flagged_rows = cleaned[cleaned["issues"] != ""].reset_index(drop=True)
-    clean_rows = cleaned[cleaned["issues"] == ""].drop(columns="issues").reset_index(drop=True)
+    has_issues = cleaned["issues"] != ""      # True/False for each row
+
+    flagged_rows = cleaned[has_issues]        # keep only rows with problems
+    flagged_rows = flagged_rows.reset_index(drop=True)   # renumber 0, 1, 2 ...
+
+    clean_rows = cleaned[~has_issues]         # ~ means "not": rows without problems
+    clean_rows = clean_rows.drop(columns="issues")       # clean rows don't need an issues column
+    clean_rows = clean_rows.reset_index(drop=True)
 
     # Count how many times each reason was flagged.
     flagged_by_reason = {}
