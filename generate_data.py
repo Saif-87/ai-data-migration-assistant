@@ -50,7 +50,9 @@ def messy_date(d):
         return d.strftime("%d/%m/%Y")         # 03/10/2026
     if style == "iso":
         return d.strftime("%Y-%m-%d")         # 2026-10-03
-    return f"{d.day} {d.strftime('%b %y')}"   # 3 Oct 26
+    day = str(d.day)                          # "3", no leading zero
+    month_year = d.strftime("%b %y")          # "Oct 26"
+    return day + " " + month_year             # 3 Oct 26
 
 
 # Problem 5a: prices written in different ways.
@@ -60,13 +62,16 @@ def messy_price(amount):
         return f"AED {amount:,}"              # AED 1,200
     if style == "plain":
         return str(amount)                    # 1200
-    return f"{amount / 1000:g}k"              # 1.2k
+    thousands = amount / 1000                 # 1200 -> 1.2, 5000 -> 5.0
+    if thousands.is_integer():
+        thousands = int(thousands)            # 5.0 -> 5, so we get "5k" not "5.0k"
+    return str(thousands) + "k"               # 1.2k
 
 
 # Problem 5b: UAE phone numbers with and without the country code.
 def messy_phone():
     prefix = random.choice(["50", "52", "55", "56"])
-    rest = f"{random.randint(0, 9999999):07d}"
+    rest = str(random.randint(0, 9999999)).zfill(7)  # zfill pads with zeros on the left: 42 -> "0000042"
     style = random.choice(["plus", "zeros", "local", "bare"])
     if style == "plus":
         return f"+971 {prefix} {rest[:3]} {rest[3:]}"   # +971 50 123 4567
@@ -89,7 +94,11 @@ def misspell(name):
     i = random.randint(1, len(name) - 3)
     if style == "drop_letter":
         return name[:i] + name[i + 1:]
-    return name[:i] + name[i + 1] + name[i] + name[i + 2:]  # swap two letters
+    before = name[:i]
+    first_letter = name[i]
+    second_letter = name[i + 1]
+    after = name[i + 2:]
+    return before + second_letter + first_letter + after   # swap two letters
 
 
 def make_booking():
@@ -99,8 +108,7 @@ def make_booking():
     amount = random.randint(5, 150) * 100  # whole hundreds, so "1.2k" style is exact
 
     return {
-        "first": first,
-        "last": last,
+        "name": f"{first} {last}",
         "email": f"{first}.{last}@{fake.free_email_domain()}".lower(),
         "phone": messy_phone(),
         "destination": random.choice(DESTINATIONS),
@@ -133,12 +141,17 @@ def to_row(booking, name):
 
 
 def main():
-    bookings = [make_booking() for _ in range(UNIQUE_BOOKINGS)]
-    rows = [to_row(b, f"{b['first']} {b['last']}") for b in bookings]
+    bookings = []
+    for _ in range(UNIQUE_BOOKINGS):
+        bookings.append(make_booking())
+
+    rows = []
+    for booking in bookings:
+        rows.append(to_row(booking, booking["name"]))
 
     # Duplicates: repeat some customers with a misspelled name but the same contact details.
-    for b in random.sample(bookings, DUPLICATE_BOOKINGS):
-        rows.append(to_row(b, misspell(f"{b['first']} {b['last']}")))
+    for booking in random.sample(bookings, DUPLICATE_BOOKINGS):
+        rows.append(to_row(booking, misspell(booking["name"])))
 
     random.shuffle(rows)  # so duplicates aren't all at the bottom
 
