@@ -1,10 +1,11 @@
-"""Create a synthetic, deliberately messy booking spreadsheet.
+"""Make a fake, messy spreadsheet of travel bookings.
 
 Run:  python generate_data.py
-Output: sample_data/messy_bookings.csv (about 100 rows)
+Output: sample_data/messy_bookings.csv (100 rows)
 
-All data is fake (made with Faker). The mess is added on purpose so the
-cleaning and mapping steps have realistic problems to solve.
+Every name, email and phone number is made up using the Faker library.
+The data is made messy on purpose, like a real spreadsheet typed by hand,
+so the rest of the project has real problems to clean up.
 """
 
 import csv
@@ -14,17 +15,21 @@ from pathlib import Path
 
 from faker import Faker
 
-# Fixed seeds so the same "messy" file is produced every run.
+# Using the same seed every time means we get the exact same "random" file on every run.
+# That way test results don't change from one run to the next.
 SEED = 42
 random.seed(SEED)
 Faker.seed(SEED)
+
+# British and Indian names, a realistic mix of customers for a travel agency in the UAE.
 fake = Faker(["en_GB", "en_IN"])
 
 OUTPUT_FILE = Path("sample_data") / "messy_bookings.csv"
 UNIQUE_BOOKINGS = 92
 DUPLICATE_BOOKINGS = 8  # 92 + 8 = 100 rows
 
-# Problem 1: inconsistent column names (mixed case, spaces, underscores, abbreviations).
+# Column names written in different styles (spaces, dots, capitals, short forms),
+# the way they often look in an old spreadsheet.
 COLUMNS = [
     "Cust Name",
     "E-mail",
@@ -43,8 +48,8 @@ DESTINATIONS = [
 STATUSES = ["Confirmed", "Pending", "Cancelled"]
 
 
-# Problem 2: mixed date formats.
 def messy_date(d):
+    """Write a date in one of three styles, picked at random."""
     style = random.choice(["slash", "iso", "short"])
     if style == "slash":
         return d.strftime("%d/%m/%Y")         # 03/10/2026
@@ -55,11 +60,11 @@ def messy_date(d):
     return day + " " + month_year             # 3 Oct 26
 
 
-# Problem 5a: prices written in different ways.
 def messy_price(amount):
+    """Write a price in one of three styles, picked at random."""
     style = random.choice(["aed", "plain", "k"])
     if style == "aed":
-        return f"AED {amount:,}"              # AED 1,200
+        return f"AED {amount:,}"              # AED 1,200  (the "," adds a thousands comma)
     if style == "plain":
         return str(amount)                    # 1200
     thousands = amount / 1000                 # 1200 -> 1.2, 5000 -> 5.0
@@ -68,9 +73,9 @@ def messy_price(amount):
     return str(thousands) + "k"               # 1.2k
 
 
-# Problem 5b: UAE phone numbers with and without the country code.
 def messy_phone():
-    prefix = random.choice(["50", "52", "55", "56"])
+    """Make a UAE mobile number, written with or without the country code (+971)."""
+    prefix = random.choice(["50", "52", "55", "56"])  # real UAE mobile prefixes
     rest = str(random.randint(0, 9999999)).zfill(7)  # zfill pads with zeros on the left: 42 -> "0000042"
     style = random.choice(["plus", "zeros", "local", "bare"])
     if style == "plus":
@@ -82,30 +87,39 @@ def messy_phone():
     return f"{prefix}{rest}"                             # 501234567
 
 
-# Problem 3: the same customer typed slightly differently.
 def misspell(name):
+    """Change a name slightly, like someone typing the same customer twice."""
     style = random.choice(["lower", "upper", "spaces", "drop_letter", "swap_letters"])
     if style == "lower":
-        return name.lower()
+        return name.lower()                              # aimee khare
     if style == "upper":
-        return name.upper()
+        return name.upper()                              # AIMEE KHARE
     if style == "spaces":
-        return "  " + name.replace(" ", "  ") + " "
+        return "  " + name.replace(" ", "  ") + " "      # "  Aimee  Khare "
+
+    # Pick a letter position to change. We start at 1 so the first letter stays correct,
+    # and stop 3 before the end so there is always a next letter to swap with.
     i = random.randint(1, len(name) - 3)
     if style == "drop_letter":
-        return name[:i] + name[i + 1:]
+        return name[:i] + name[i + 1:]                   # Aime Khare
     before = name[:i]
     first_letter = name[i]
     second_letter = name[i + 1]
     after = name[i + 2:]
-    return before + second_letter + first_letter + after   # swap two letters
+    return before + second_letter + first_letter + after   # Aimee Kahre
 
 
 def make_booking():
+    """Make one correct booking. The mess is added later, in to_row()."""
     first, last = fake.first_name(), fake.last_name()
     booking_date = fake.date_between(start_date=date(2026, 1, 1), end_date=date(2026, 9, 30))
+
+    # Travel is always 7 to 180 days after booking, so this date is never wrong.
+    # The only problems in the file are the ones we add on purpose.
     travel_date = booking_date + timedelta(days=random.randint(7, 180))
-    amount = random.randint(5, 150) * 100  # whole hundreds, so "1.2k" style is exact
+
+    # Prices are whole hundreds (500, 1200 ...), so "1.2k" is always exact.
+    amount = random.randint(5, 150) * 100
 
     return {
         "name": f"{first} {last}",
@@ -120,6 +134,7 @@ def make_booking():
 
 
 def to_row(booking, name):
+    """Turn a booking into one spreadsheet row, with messy dates and prices."""
     row = {
         "Cust Name": name,
         "E-mail": booking["email"],
@@ -131,7 +146,7 @@ def to_row(booking, name):
         "STATUS": booking["status"],
     }
 
-    # Problem 4: missing values.
+    # Leave some cells empty: about 1 in 10 emails and 1 in 12 booking dates.
     if random.random() < 0.10:
         row["E-mail"] = ""
     if random.random() < 0.08:
@@ -149,13 +164,17 @@ def main():
     for booking in bookings:
         rows.append(to_row(booking, booking["name"]))
 
-    # Duplicates: repeat some customers with a misspelled name but the same contact details.
+    # Add duplicates: the same customer again, with a slightly different name
+    # but the same email and phone, so they can be spotted later.
+    # We call to_row() again instead of copying the row, so the copy gets its own
+    # date and price styles, just like a second booking typed in by hand.
     for booking in random.sample(bookings, DUPLICATE_BOOKINGS):
         rows.append(to_row(booking, misspell(booking["name"])))
 
-    random.shuffle(rows)  # so duplicates aren't all at the bottom
+    # Mix up the order, otherwise all the duplicates would sit at the bottom of the file.
+    random.shuffle(rows)
 
-    OUTPUT_FILE.parent.mkdir(exist_ok=True)
+    OUTPUT_FILE.parent.mkdir(exist_ok=True)  # create the sample_data folder if it doesn't exist
     with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=COLUMNS)
         writer.writeheader()
