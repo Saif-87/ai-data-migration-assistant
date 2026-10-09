@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "aaae8773-2164-4459-a21a-ee5750bbf68d",
     "name": "AI Data Migration – Airtable API",
-    "description": "Airtable REST API requests used to test the AI Data Migration Assistant: list records, create a record, and delete a record. Set base_id and token as Postman environment variables; record_id is the id of the record to delete.",
+    "description": "Airtable and HubSpot REST API requests used to test the AI Data Migration Assistant: list records, create a record, and delete a record in Airtable, and list contacts in HubSpot. Set base_id, token and hubspot_token as Postman environment variables; record_id is the id of the record to delete.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_exporter_id": "58841448"
   },
@@ -108,6 +108,49 @@
             "{{base_id}}",
             "Bookings",
             "{{record_id}}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "HubSpot – List contacts",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{hubspot_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://api.hubapi.com/crm/v3/objects/contacts?limit=5&properties=lastname,email,phone,destination,booked_on,travel_dt,price,booking_status",
+          "protocol": "https",
+          "host": [
+            "api",
+            "hubapi",
+            "com"
+          ],
+          "path": [
+            "crm",
+            "v3",
+            "objects",
+            "contacts"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "5"
+            },
+            {
+              "key": "properties",
+              "value": "lastname,email,phone,destination,booked_on,travel_dt,price,booking_status"
+            }
           ]
         }
       },
