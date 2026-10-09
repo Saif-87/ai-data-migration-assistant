@@ -65,6 +65,7 @@ def clean_phone(value):
     "00971501234567"    -> "+971501234567"
     "050 123 4567"      -> "+971501234567"   (no country code, so treated as a UAE number)
     "501234567"         -> "+971501234567"
+    "04 123 4567"       -> "+97141234567"    (UAE landline: 8 digits after 971)
     "+44 20 7946 0958"  -> "+442079460958"   (other countries are kept as they are)
     "0091 98765 43210"  -> "+919876543210"
     """
@@ -95,20 +96,21 @@ def clean_phone(value):
             return None
 
     # From here on it's a UAE number (with or without +971).
-    # Remove the country code or leading zero, so only the 9-digit local number is left.
-    # We check the length too, not just the start, so we only remove a prefix when the rest
-    # is a full number. Otherwise a short or strange number could be chopped by mistake.
-    if digits.startswith("00971") and len(digits) == 14:
+    # Step 1: remove the country code, if there is one.
+    if digits.startswith("00971"):
         digits = digits[5:]
-    elif digits.startswith("971") and len(digits) == 12:
+    elif digits.startswith("971"):
         digits = digits[3:]
-    elif digits.startswith("0") and len(digits) == 10:
+
+    # Step 2: remove the leading 0 that's used when dialling inside the UAE (050..., 04...).
+    if digits.startswith("0"):
         digits = digits[1:]
 
-    # A UAE local number has 9 digits. Anything else we can't fix.
-    if len(digits) != 9:
-        return None
-    return "+971" + digits
+    # Step 3: what's left must be a full local number.
+    # WHY two lengths: mobiles have 9 digits (50 123 4567), landlines have 8 (4 123 4567).
+    if len(digits) == 8 or len(digits) == 9:
+        return "+971" + digits
+    return None  # too short or too long: we can't fix it, so the row gets flagged
 
 
 def clean_date(value):
