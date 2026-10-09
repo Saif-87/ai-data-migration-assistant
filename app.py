@@ -18,6 +18,7 @@ from cleaning import clean_and_validate
 from database import CSV_FILE, DB_FILE, create_migration_log, load_csv, profile
 from mapping import MODEL, check_suggestions, suggest_mappings
 from migrate import TABLE_NAME, migrate
+from report import build_report
 from schema import FIELD_NAMES
 
 st.title("Data Migration Assistant")
@@ -65,6 +66,7 @@ if st.session_state.get("file_id") != file_id:
     st.session_state["mapping_error"] = None
     st.session_state["confirmed_mapping"] = None
     st.session_state["migration_summary"] = None
+    st.session_state["report"] = None
 
 
 # ---------- 2. Data profile ----------
@@ -179,6 +181,7 @@ if st.button("Confirm mapping"):
     else:
         st.session_state["confirmed_mapping"] = current_mapping
         st.session_state["migration_summary"] = None  # new mapping, so it can be migrated again
+        st.session_state["report"] = None
 
 confirmed_mapping = st.session_state["confirmed_mapping"]
 
@@ -281,5 +284,43 @@ if migration_summary is not None:
             st.write("**Rows that failed** (also saved in the migration_log table):")
             st.dataframe(pd.DataFrame(migration_summary["failed_rows"]))
 
-st.button("Download report", disabled=True)
-st.write("Coming soon: report.py will build the migration report.")
+
+# ---------- 7. Report ----------
+# WHAT: build the migration report with report.py and offer it as two downloads.
+# WHY: a migration needs a record of what was mapped, cleaned, flagged, sent and failed.
+st.header("7. Report")
+
+migration_worked = migration_summary is not None and migration_summary["error"] is None
+
+if not migration_worked:
+    # No migration yet, so there is nothing to report on.
+    st.button("Show report", disabled=True)
+    st.write("Migrate the clean rows first. Then you can see the report.")
+else:
+    if st.button("Show report"):
+        # The migrated / failed numbers are read from the migration_log table for this run.
+        conn = sqlite3.connect(DB_FILE)
+        markdown_text, csv_text = build_report(
+            conn, migration_summary["run_id"], confirmed_mapping, summary, flagged_rows
+        )
+        conn.close()
+        st.session_state["report"] = {"markdown": markdown_text, "csv": csv_text}
+
+# WHY: the report is kept in session_state, so it stays on the page after clicking a download button.
+report = st.session_state["report"]
+
+if report is not None:
+    st.markdown(report["markdown"])
+
+    st.download_button(
+        "Download report (.md)",
+        data=report["markdown"],
+        file_name=f"migration_report_{migration_summary['run_id']}.md",
+        mime="text/markdown",
+    )
+    st.download_button(
+        "Download details (.csv)",
+        data=report["csv"],
+        file_name=f"migration_details_{migration_summary['run_id']}.csv",
+        mime="text/csv",
+    )
