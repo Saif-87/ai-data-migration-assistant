@@ -116,35 +116,33 @@ if st.session_state.get("file_id") != file_id:
 st.header("2. Data profile")
 
 result = None
+profile_error = None
 conn = sqlite3.connect(DB_FILE)
 try:
     load_csv(conn, csv_path)
     create_migration_log(conn)
     result = profile(conn)
-except sqlite3.Error:
-    # The SQL queries use the sample file's column names, so other files can fail here.
-    result = None
+except sqlite3.Error as error:
+    # WHY: an unusual file (e.g. two columns with the same name) can't be loaded into SQLite.
+    # Show why, but let the rest of the page carry on.
+    profile_error = str(error)
 conn.close()
 
 if result is None:
-    st.write("The SQL profile only works with the sample file's column names. "
-             "The rest of the page still works.")
+    st.write(f"**Could not profile this file with SQL:** {profile_error}. The rest of the page still works.")
 else:
     st.metric("Total rows", result["total_rows"])
-    st.metric("Missing E-mail", result["missing_email"])
-    st.metric("Missing Booked On", result["missing_booked_on"])
+    st.metric("Fully duplicated rows", result["duplicate_rows"])
 
-    st.write("**Emails used more than once**")
-    duplicate_emails = pd.DataFrame(result["duplicate_emails"], columns=["Email", "Times"])
-    st.dataframe(duplicate_emails)
+    st.write("**Missing values per column**")
+    missing_table = pd.DataFrame(result["missing"], columns=["Column", "Missing"])
+    st.dataframe(missing_table)
 
-    st.write("**Phone numbers used more than once**")
-    duplicate_phones = pd.DataFrame(result["duplicate_phones"], columns=["Phone", "Times"])
-    st.dataframe(duplicate_phones)
-
-    st.write("**STATUS values**")
-    status_counts = pd.DataFrame(result["status_counts"], columns=["Status", "Times"])
-    st.dataframe(status_counts)
+    # One small table per column that has only a few different values (like a status).
+    for column, counts in result["value_counts"].items():
+        st.write(f"**Values in {column}**")
+        counts_table = pd.DataFrame(counts, columns=["Value", "Times"])
+        st.dataframe(counts_table)
 
 
 # ---------- 3. Suggested mappings ----------

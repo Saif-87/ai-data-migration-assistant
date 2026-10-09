@@ -14,6 +14,9 @@ from pathlib import Path
 CSV_FILE = Path("sample_data") / "messy_bookings.csv"
 DB_FILE = Path("migration.db")
 
+# A column with this many different values or fewer gets a count per value (e.g. a status column).
+MAX_DIFFERENT_VALUES = 10
+
 
 def quote(column):
     """Wrap a column name in double quotes so SQL accepts it.
@@ -72,59 +75,81 @@ def load_csv(conn, csv_path=CSV_FILE):
     return len(rows)
 
 
+def get_columns(conn):
+    """Return the column names of raw_bookings, read from the table itself.
+
+    WHY: the profile must work with any file (a CSV, HubSpot contacts ...),
+    so we never type column names by hand.
+    """
+    # PRAGMA table_info gives one row per column: (position, name, type, ...)
+    columns = []
+    for column_info in conn.execute("PRAGMA table_info(raw_bookings)").fetchall():
+        columns.append(column_info[1])
+    return columns
+
+
 def profile(conn):
-    """Run SQL checks on raw_bookings and return the results as a dictionary."""
+    """Run SQL checks on raw_bookings and return the results as a dictionary.
+
+    Works with any columns:
+    - total_rows:     how many rows there are
+    - missing:        [(column, how many empty cells), ...] for every column
+    - duplicate_rows: how many rows are exact copies of an earlier row
+    - value_counts:   {column: [(value, times), ...]} for columns with only a few different values
+    """
     results = {}
+    columns = get_columns(conn)
 
     # How many rows in total
     row = conn.execute("SELECT COUNT(*) FROM raw_bookings").fetchone()  # one row, e.g. (100,)
     results["total_rows"] = row[0]                                       # take the number out
 
+    # Missing values in each column.
     # A cell counts as missing if it's empty or only spaces (TRIM removes spaces at both ends).
-    row = conn.execute("""
-        SELECT COUNT(*) FROM raw_bookings
-        WHERE "E-mail" IS NULL OR TRIM("E-mail") = ''
+    results["missing"] = []
+    for column in columns:
+        sql = f"SELECT COUNT(*) FROM raw_bookings WHERE {quote(column)} IS NULL OR TRIM({quote(column)}) = ''"
+        row = conn.execute(sql).fetchone()
+        results["missing"].append((column, row[0]))
+
+    # Rows that are exact copies: the same value in EVERY column.
+    # GROUP BY all columns puts identical rows together; each group of 3 means 2 extra copies.
+    quoted_columns = []
+    for column in columns:
+        quoted_columns.append(quote(column))
+    all_columns = ", ".join(quoted_columns)
+    row = conn.execute(f"""
+        SELECT SUM(times - 1) FROM (
+            SELECT COUNT(*) AS times
+            FROM raw_bookings
+            GROUP BY {all_columns}
+            HAVING COUNT(*) > 1
+        )
     """).fetchone()
-    results["missing_email"] = row[0]
+    if row[0] is None:
+        results["duplicate_rows"] = 0  # SUM of nothing is NULL, which means no copies
+    else:
+        results["duplicate_rows"] = row[0]
 
-    row = conn.execute("""
-        SELECT COUNT(*) FROM raw_bookings
-        WHERE "Booked On" IS NULL OR TRIM("Booked On") = ''
-    """).fetchone()
-    results["missing_booked_on"] = row[0]
+    # How often each value appears, but only for columns with a few different values (like a status).
+    # WHY: for names or emails almost every value is different, so a count per value isn't useful.
+    results["value_counts"] = {}
+    for column in columns:
+        q = quote(column)
+        row = conn.execute(
+            f"SELECT COUNT(DISTINCT {q}) FROM raw_bookings WHERE TRIM({q}) <> ''"
+        ).fetchone()
+        different_values = row[0]
 
-    # Emails used more than once.
-    # Blank emails are skipped, otherwise all the blanks would look like one big duplicate.
-    # LOWER makes "A@x.com" and "a@x.com" count as the same email.
-    # HAVING is like WHERE, but it filters groups instead of single rows.
-    results["duplicate_emails"] = conn.execute("""
-        SELECT LOWER(TRIM("E-mail")) AS email, COUNT(*) AS times
-        FROM raw_bookings
-        WHERE TRIM("E-mail") <> ''
-        GROUP BY LOWER(TRIM("E-mail"))
-        HAVING COUNT(*) > 1
-        ORDER BY times DESC, email
-    """).fetchall()
-
-    # Phone numbers used more than once.
-    # Only finds numbers typed exactly the same. "+971 50..." and "050..." won't match
-    # until cleaning.py puts every number in one format.
-    results["duplicate_phones"] = conn.execute("""
-        SELECT phone_no, COUNT(*) AS times
-        FROM raw_bookings
-        WHERE TRIM(phone_no) <> ''
-        GROUP BY phone_no
-        HAVING COUNT(*) > 1
-        ORDER BY times DESC, phone_no
-    """).fetchall()
-
-    # Each STATUS value and how many times it appears, most common first.
-    results["status_counts"] = conn.execute("""
-        SELECT STATUS, COUNT(*) AS times
-        FROM raw_bookings
-        GROUP BY STATUS
-        ORDER BY times DESC
-    """).fetchall()
+        if different_values > 0 and different_values <= MAX_DIFFERENT_VALUES:
+            counts = conn.execute(f"""
+                SELECT {q}, COUNT(*) AS times
+                FROM raw_bookings
+                WHERE TRIM({q}) <> ''
+                GROUP BY {q}
+                ORDER BY times DESC
+            """).fetchall()
+            results["value_counts"][column] = counts
 
     return results
 
@@ -137,18 +162,15 @@ if __name__ == "__main__":
     conn.close()
 
     print(f"Loaded {loaded} rows into {DB_FILE} (table raw_bookings)\n")
-    print(f"Total rows:          {result['total_rows']}")
-    print(f"Missing E-mail:      {result['missing_email']}")
-    print(f"Missing Booked On:   {result['missing_booked_on']}")
+    print(f"Total rows:            {result['total_rows']}")
+    print(f"Fully duplicated rows: {result['duplicate_rows']}")
 
-    print(f"\nEmails appearing more than once ({len(result['duplicate_emails'])}):")
-    for email, times in result["duplicate_emails"]:
-        print(f"  {email}  x{times}")
+    print("\nMissing values per column:")
+    for column, missing in result["missing"]:
+        print(f"  {column:<16} {missing}")
 
-    print(f"\nPhone numbers appearing more than once ({len(result['duplicate_phones'])}):")
-    for phone, times in result["duplicate_phones"]:
-        print(f"  {phone}  x{times}")
-
-    print("\nSTATUS values:")
-    for status, times in result["status_counts"]:
-        print(f"  {status}: {times}")
+    print("\nValue counts (columns with few different values):")
+    for column, counts in result["value_counts"].items():
+        print(f"  {column}:")
+        for value, times in counts:
+            print(f"    {value}: {times}")
