@@ -58,7 +58,7 @@ FIELDS = [
     Field(
         name="booking_date",
         type="date",
-        required=False,
+        required=True,  # needed to check that travel_date comes after it
         description="The date the booking was made.",
         format_rule="YYYY-MM-DD (e.g. '2026-10-03').",
     ),

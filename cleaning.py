@@ -15,10 +15,6 @@ import pandas as pd
 
 from schema import FIELD_NAMES, REQUIRED_FIELDS, STATUS_VALUES
 
-# Fields every row must have.
-# booking_date is optional in schema.py, but we need it to check travel_date, so we add it here.
-MUST_HAVE_FIELDS = REQUIRED_FIELDS + ["booking_date"]
-
 # Date formats we understand, e.g. 03/10/2026, 2026-10-03, 3 Oct 26
 DATE_FORMATS = ["%d/%m/%Y", "%Y-%m-%d", "%d %b %y"]
 
@@ -63,12 +59,14 @@ def clean_email(value):
 
 
 def clean_phone(value):
-    """Convert a UAE number to +971XXXXXXXXX.
+    """Convert a phone number to international format: "+", country code, number, no spaces.
 
-    "+971 50 123 4567" -> "+971501234567"
-    "00971501234567"   -> "+971501234567"
-    "050 123 4567"     -> "+971501234567"
-    "501234567"        -> "+971501234567"
+    "+971 50 123 4567"  -> "+971501234567"
+    "00971501234567"    -> "+971501234567"
+    "050 123 4567"      -> "+971501234567"   (no country code, so treated as a UAE number)
+    "501234567"         -> "+971501234567"
+    "+44 20 7946 0958"  -> "+442079460958"   (other countries are kept as they are)
+    "0091 98765 43210"  -> "+919876543210"
     """
     if is_blank(value):
         return None
@@ -79,6 +77,24 @@ def clean_phone(value):
         if character.isdigit():
             digits = digits + character
 
+    # Does the number start with a country code? It does if it starts with "+" or "00".
+    starts_with_plus = str(value).strip().startswith("+")
+    starts_with_00 = digits.startswith("00")
+
+    # A number from another country (not 971): keep its own country code.
+    if starts_with_plus or starts_with_00:
+        if starts_with_00:
+            without_00 = digits[2:]  # "00" is another way of writing "+"
+        else:
+            without_00 = digits
+
+        if not without_00.startswith("971"):
+            # International numbers are 8 to 15 digits long, including the country code.
+            if len(without_00) >= 8 and len(without_00) <= 15:
+                return "+" + without_00
+            return None
+
+    # From here on it's a UAE number (with or without +971).
     # Remove the country code or leading zero, so only the 9-digit local number is left.
     # We check the length too, not just the start, so we only remove a prefix when the rest
     # is a full number. Otherwise a short or strange number could be chopped by mistake.
@@ -270,10 +286,10 @@ def clean_and_validate(df):
         travel_date = cleaned.at[i, "travel_date"]
         amount = cleaned.at[i, "amount_aed"]
 
-        # Must-have fields are empty.
+        # Required fields (from schema.py) are empty.
         # We look at the original cell, not the cleaned one. If a date was there but unreadable,
         # it's already flagged as "could not be understood", so we don't also call it "missing".
-        for field in MUST_HAVE_FIELDS:
+        for field in REQUIRED_FIELDS:
             if is_blank(original.at[i, field]):
                 issues[i].append((f"missing {field}", f"{field} is missing."))
 
