@@ -103,8 +103,6 @@ st.dataframe(df.head(10))
 # WHY: if a new file was loaded, forget everything we remembered about the old file.
 if st.session_state.get("file_id") != file_id:
     st.session_state["file_id"] = file_id
-    st.session_state["suggestions"] = None
-    st.session_state["mapping_error"] = None
     st.session_state["confirmed_mapping"] = None
     st.session_state["migration_summary"] = None
     st.session_state["report"] = None
@@ -150,22 +148,32 @@ else:
 # WHY: the AI does the first draft, but a person can correct it.
 st.header("3. Suggested mappings")
 st.write(f"Gemini ({MODEL}) sees only the column names and 3 sample rows.")
+st.write("Note: this demo uses Gemini's free tier, which allows only a few requests a day. "
+         "If the limit is reached, you can type the mappings by hand.")
 st.write("You can type a different target field in the table. Allowed names: " + ", ".join(FIELD_NAMES))
 st.write("Leave the target field empty if a column has no match.")
 
+# Gemini's answer for each file we've seen, e.g. {"sample_data/messy_bookings.csv": {...}, "hubspot-1": {...}}
+# WHY: the free tier allows only a few requests a day. Keeping one answer per file means
+# clicking around, or switching between CSV and HubSpot, never asks Gemini twice for the same data.
+if "gemini_answers" not in st.session_state:
+    st.session_state["gemini_answers"] = {}
+gemini_answers = st.session_state["gemini_answers"]
+
 if st.button("Ask Gemini again"):
-    st.session_state["suggestions"] = None
+    # Forget the saved answer for this file, so Gemini is asked once more below.
+    if file_id in gemini_answers:
+        del gemini_answers[file_id]
     st.session_state["confirmed_mapping"] = None
 
-# WHY: only call Gemini if we don't have suggestions yet.
-# Without this, every click on the page would send a new request to Gemini.
-if st.session_state["suggestions"] is None:
+# Only call Gemini if we don't have an answer for this file yet.
+# An error is saved too, so a failed request isn't repeated on every click. Use "Ask Gemini again" to retry.
+if file_id not in gemini_answers:
     suggestions, mapping_error = suggest_mappings(df)
-    st.session_state["suggestions"] = suggestions
-    st.session_state["mapping_error"] = mapping_error
+    gemini_answers[file_id] = {"suggestions": suggestions, "error": mapping_error}
 
-suggestions = st.session_state["suggestions"]
-mapping_error = st.session_state["mapping_error"]
+suggestions = gemini_answers[file_id]["suggestions"]
+mapping_error = gemini_answers[file_id]["error"]
 
 if mapping_error is not None:
     st.write(f"**Gemini error:** {mapping_error}")

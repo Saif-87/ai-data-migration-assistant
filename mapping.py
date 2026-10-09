@@ -13,7 +13,7 @@ import os
 import pandas as pd
 from dotenv import load_dotenv
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 
 from schema import FIELDS, FIELD_NAMES
 
@@ -161,8 +161,13 @@ def suggest_mappings(df):
                 temperature=0,  # as consistent as possible, so the same file gets the same mapping
             ),
         )
+    except errors.ClientError as e:
+        # 429 = too many requests. On the free tier this means the daily limit is used up.
+        if e.code == 429:
+            return [], "Gemini's free daily limit is used up. Type the mappings by hand, or try again later."
+        return [], f"Gemini request failed ({type(e).__name__}): {e}"
     except Exception as e:
-        # Any failure (no internet, busy server, wrong key) becomes a message for the user
+        # Any other failure (no internet, busy server, wrong key) becomes a message for the user
         # instead of crashing the app. The message never includes the API key.
         return [], f"Gemini request failed ({type(e).__name__}): {e}"
 
