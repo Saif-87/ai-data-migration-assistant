@@ -16,6 +16,7 @@ import streamlit as st
 
 from cleaning import clean_and_validate
 from database import CSV_FILE, DB_FILE, create_migration_log, load_csv, profile
+from hubspot_source import fetch_contacts
 from mapping import MODEL, check_suggestions, suggest_mappings
 from migrate import TABLE_NAME, migrate
 from report import build_report
@@ -26,35 +27,70 @@ st.write("Move messy booking data into a clean system: AI suggests the mapping, 
          "you confirm it, and Python cleans and checks the data.")
 
 
-# ---------- 1. Upload ----------
-# WHAT: let the user upload a CSV, or use the sample file.
-# WHY: so the demo works straight away, even with nothing uploaded.
-st.header("1. Upload data")
+# ---------- 1. Get the data ----------
+# WHAT: choose where the data comes from: a CSV file, or contacts in HubSpot CRM.
+# WHY: real migrations start from different systems. After this step, both sources
+# are handled exactly the same way.
+st.header("1. Get the data")
 
-uploaded_file = st.file_uploader("Upload a CSV file", type="csv")
+source = st.radio("Where is the data?", ["Upload CSV", "Pull from HubSpot"])
 
-# Start with the sample file.
-csv_path = CSV_FILE
-file_id = str(CSV_FILE)
+if source == "Upload CSV":
+    # WHAT: let the user upload a CSV, or use the sample file.
+    # WHY: so the demo works straight away, even with nothing uploaded.
+    uploaded_file = st.file_uploader("Upload a CSV file", type="csv")
 
-if uploaded_file is not None:
-    # database.load_csv() reads a file from disk, so we save the upload to a temporary file first.
-    upload_path = Path(tempfile.gettempdir()) / "uploaded_bookings.csv"
-    upload_path.write_bytes(uploaded_file.getvalue())
-    csv_path = upload_path
-    file_id = uploaded_file.name + "-" + str(uploaded_file.size)
-
-# Read the file. If the upload isn't a valid CSV, go back to the sample file.
-try:
-    df = pd.read_csv(csv_path, dtype=str)  # dtype=str keeps every value as text, exactly as typed
-except Exception as error:
-    st.write(f"**Could not read the uploaded file, so the sample file is used instead.** ({error})")
+    # Start with the sample file.
     csv_path = CSV_FILE
     file_id = str(CSV_FILE)
-    df = pd.read_csv(csv_path, dtype=str)
 
-if csv_path == CSV_FILE:
-    st.write(f"Using the sample file: {CSV_FILE}")
+    if uploaded_file is not None:
+        # database.load_csv() reads a file from disk, so we save the upload to a temporary file first.
+        upload_path = Path(tempfile.gettempdir()) / "uploaded_bookings.csv"
+        upload_path.write_bytes(uploaded_file.getvalue())
+        csv_path = upload_path
+        file_id = uploaded_file.name + "-" + str(uploaded_file.size)
+
+    # Read the file. If the upload isn't a valid CSV, go back to the sample file.
+    try:
+        df = pd.read_csv(csv_path, dtype=str)  # dtype=str keeps every value as text, exactly as typed
+    except Exception as error:
+        st.write(f"**Could not read the uploaded file, so the sample file is used instead.** ({error})")
+        csv_path = CSV_FILE
+        file_id = str(CSV_FILE)
+        df = pd.read_csv(csv_path, dtype=str)
+
+    if csv_path == CSV_FILE:
+        st.write(f"Using the sample file: {CSV_FILE}")
+
+else:
+    # WHAT: pull all contacts from HubSpot with hubspot_source.py.
+    if st.button("Pull contacts again"):
+        st.session_state["hubspot_df"] = None
+        st.session_state["hubspot_error"] = None
+
+    # WHY: only call HubSpot when we don't have the contacts yet.
+    # Without this, every click on the page would fetch all contacts again.
+    if st.session_state.get("hubspot_df") is None and st.session_state.get("hubspot_error") is None:
+        hubspot_df, hubspot_error = fetch_contacts()
+        st.session_state["hubspot_df"] = hubspot_df
+        st.session_state["hubspot_error"] = hubspot_error
+        # Count the pulls, so a new pull counts as new data and the steps below start fresh.
+        st.session_state["hubspot_pulls"] = st.session_state.get("hubspot_pulls", 0) + 1
+
+    if st.session_state["hubspot_error"] is not None:
+        st.write(f"**Could not pull contacts from HubSpot:** {st.session_state['hubspot_error']}")
+        st.write("Click **Pull contacts again** to retry, or choose **Upload CSV**.")
+        st.stop()  # nothing to show below without data
+
+    # database.load_csv() reads a file from disk, so we save the contacts to a temporary CSV file.
+    csv_path = Path(tempfile.gettempdir()) / "hubspot_contacts.csv"
+    st.session_state["hubspot_df"].to_csv(csv_path, index=False)
+    file_id = "hubspot-" + str(st.session_state["hubspot_pulls"])
+
+    # Read it back the same way as an uploaded CSV, so both sources look exactly the same from here on.
+    df = pd.read_csv(csv_path, dtype=str)
+    st.write("Pulled the contacts from HubSpot. The column names are HubSpot's property names.")
 
 st.write(f"{len(df)} rows and {len(df.columns)} columns. Here are the first 10 rows:")
 st.dataframe(df.head(10))
