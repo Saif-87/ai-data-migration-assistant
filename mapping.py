@@ -166,6 +166,11 @@ def suggest_mappings(df):
         if e.code == 429:
             return [], "Gemini's free daily limit is used up. Type the mappings by hand, or try again later."
         return [], f"Gemini request failed ({type(e).__name__}): {e}"
+    except errors.ServerError as e:
+        # 503 = Gemini is overloaded. It usually clears up after a minute or two.
+        if e.code == 503:
+            return [], "Gemini is busy right now. Click Ask Gemini again in a minute, or type the mappings by hand."
+        return [], f"Gemini request failed ({type(e).__name__}): {e}"
     except Exception as e:
         # Any other failure (no internet, busy server, wrong key) becomes a message for the user
         # instead of crashing the app. The message never includes the API key.
