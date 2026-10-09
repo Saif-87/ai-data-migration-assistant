@@ -20,7 +20,7 @@ PAGE_SIZE = 100
 
 # The HubSpot contact properties that hold the booking data (their internal names).
 PROPERTIES = [
-    "lastname",        # the full customer name
+    "lastname",        # HubSpot has no "full name" field, so the import put the whole name here
     "email",
     "phone",
     "destination",
@@ -41,20 +41,9 @@ def get_token():
 
 
 def fetch_page(after):
-    """Get one page of contacts (up to 100) from HubSpot and return the JSON reply as a dict.
+    """Get one page of contacts (up to 100) from HubSpot and return the reply as a dict.
 
-    after: the paging cursor from the previous page, or None for the first page.
-
-    What to do:
-    - Send ONE GET request to CONTACTS_URL with the requests library.
-    - Headers:     {"Authorization": "Bearer " + get_token()}
-    - Parameters:  "limit"      -> PAGE_SIZE
-                   "properties" -> the PROPERTIES list joined with commas, e.g. "lastname,email,phone,..."
-                   "after"      -> the after value, but ONLY if it isn't None
-    - Use timeout=30, so the app doesn't wait forever if HubSpot doesn't answer.
-    - Call response.raise_for_status(), so a bad reply (e.g. 401 wrong token) raises an error
-      that fetch_contacts() turns into a friendly message.
-    - Return response.json().
+    after: where the previous page ended, or None for the first page.
 
     The reply looks like:
         {"results": [{"id": "...", "properties": {"lastname": "Janice Lee", ...}}, ...],
@@ -96,7 +85,8 @@ def fetch_contacts():
         try:
             data = fetch_page(after)
         except requests.HTTPError as error:
-            status = error.response.status_code
+            response = error.response        # HubSpot's reply that caused the error
+            status = response.status_code    # e.g. 401
             if status == 401:
                 return None, "HubSpot didn't accept the token (401). Check HUBSPOT_TOKEN in your .env file."
             if status == 403:
@@ -115,7 +105,7 @@ def fetch_contacts():
                 row[name] = properties.get(name)
             rows.append(row)
 
-        # WHY: HubSpot only adds "paging" -> "next" when there's another page to fetch.
+        # No "next" means this was the last page.
         paging = data.get("paging")
         if paging is None:
             break
@@ -127,8 +117,7 @@ def fetch_contacts():
     if len(rows) == 0:
         return None, "No contacts were found in HubSpot."
 
-    # columns=PROPERTIES keeps the columns in the same order as the list above.
-    df = pd.DataFrame(rows, columns=PROPERTIES)
+    df = pd.DataFrame(rows)
     return df, None
 
 

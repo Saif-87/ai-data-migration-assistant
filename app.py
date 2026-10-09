@@ -69,26 +69,31 @@ else:
         st.session_state["hubspot_df"] = None
         st.session_state["hubspot_error"] = None
 
-    # WHY: only call HubSpot when we don't have the contacts yet.
-    # Without this, every click on the page would fetch all contacts again.
-    if st.session_state.get("hubspot_df") is None and st.session_state.get("hubspot_error") is None:
+    # Streamlit reruns on every click. Without this, we'd fetch from HubSpot every time.
+    have_data = st.session_state.get("hubspot_df") is not None
+    have_error = st.session_state.get("hubspot_error") is not None
+
+    if not have_data and not have_error:
         hubspot_df, hubspot_error = fetch_contacts()
         st.session_state["hubspot_df"] = hubspot_df
         st.session_state["hubspot_error"] = hubspot_error
-        # Count the pulls, so a new pull counts as new data and the steps below start fresh.
-        st.session_state["hubspot_pulls"] = st.session_state.get("hubspot_pulls", 0) + 1
 
-    if st.session_state["hubspot_error"] is not None:
-        st.write(f"**Could not pull contacts from HubSpot:** {st.session_state['hubspot_error']}")
+        # A new pull may bring different data, so the mapping and cleaning start fresh.
+        if "hubspot_pulls" not in st.session_state:
+            st.session_state["hubspot_pulls"] = 0
+        st.session_state["hubspot_pulls"] = st.session_state["hubspot_pulls"] + 1
+
+    hubspot_error = st.session_state["hubspot_error"]
+    if hubspot_error is not None:
+        st.write(f"**Could not pull contacts from HubSpot:** {hubspot_error}")
         st.write("Click **Pull contacts again** to retry, or choose **Upload CSV**.")
         st.stop()  # nothing to show below without data
 
-    # database.load_csv() reads a file from disk, so we save the contacts to a temporary CSV file.
+    # Saving to a CSV makes HubSpot data look exactly like an uploaded file to every later step.
     csv_path = Path(tempfile.gettempdir()) / "hubspot_contacts.csv"
     st.session_state["hubspot_df"].to_csv(csv_path, index=False)
     file_id = "hubspot-" + str(st.session_state["hubspot_pulls"])
 
-    # Read it back the same way as an uploaded CSV, so both sources look exactly the same from here on.
     df = pd.read_csv(csv_path, dtype=str)
     st.write("Pulled the contacts from HubSpot. The column names are HubSpot's property names.")
 
