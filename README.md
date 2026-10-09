@@ -45,7 +45,7 @@ The app can start from either:
 - **Upload CSV:** any CSV file, or the included sample (`sample_data/messy_bookings.csv`).
 - **Pull from HubSpot:** `hubspot_source.py` reads contacts from the HubSpot CRM REST API with a service key (read-only scopes), following HubSpot's paging cursor until every contact is fetched. In the demo account, the data sits in HubSpot's own fields (`lastname`, `email`, `phone`) plus custom ones (`destination`, `booked_on`, `travel_dt`, `price`, `booking_status`), still messy.
 
-Each source is a separate connector that returns the same kind of table, so everything after this step works the same for both.
+HubSpot has its own connector file (`hubspot_source.py`), and the CSV upload is read in `app.py`. Both produce the same kind of table, so everything after this step works the same for both.
 
 ### 1. Profile with SQL
 
@@ -111,7 +111,7 @@ A migration summary showing records in the source, fields mapped, what was clean
 
 ## Design choices
 
-**Why a person confirms the AI's mappings:** [your words — e.g. AI suggestions can be wrong, and a migration error damages customer trust]
+**Why a person confirms the AI's mappings:** AI suggestions can be wrong. If a wrong mapping went through unchecked, say price into phone, every record would land in the new system with the wrong data, and fixing that inside a customer's live system is much harder than catching it before anything moves.
 
 **Why flagged rows aren't deleted:** flagged rows are important for customers because they are real entries that need to be investigated, not thrown away.
 
@@ -143,7 +143,8 @@ Problems found while testing, tracked as GitHub issues:
 | [#1](https://github.com/Saif-87/ai-data-migration-assistant/issues/1) | Phone cleaning only accepted UAE numbers | Keep other countries' codes; UAE is the default for local numbers |
 | [#2](https://github.com/Saif-87/ai-data-migration-assistant/issues/2) | The SQL profile only worked with the sample file's column names | Generic queries that work with any columns, including HubSpot data |
 | [#3](https://github.com/Saif-87/ai-data-migration-assistant/issues/3) | The duplicate check kept the first row even when it was the misspelled one | Flag both rows so a person chooses |
-| [#4](https://github.com/Saif-87/ai-data-migration-assistant/issues/4) | Gemini was asked again when switching sources or starting a new session, using up the free daily limit | Ask once per file and remember the answer |
+| [#4](https://github.com/Saif-87/ai-data-migration-assistant/issues/4) | Gemini was asked again when switching sources, using up the free daily limit | Ask once per file and remember the answer |
+| [#5](https://github.com/Saif-87/ai-data-migration-assistant/issues/5) | UAE landline numbers were cleaned into wrong numbers (e.g. `04 123 4567` → `+971041234567`) | Accept 8-digit landlines as well as 9-digit mobiles: `04 123 4567` → `+97141234567` |
 
 ## Sample data
 
@@ -158,7 +159,7 @@ Problems found while testing, tracked as GitHub issues:
 | Duplicate customers with small spelling differences | `Alexander Date` vs `ALEXANDER DATE`, `Vritti Badal` vs `Vitti Badal` (each duplicate appears twice) |
 | Missing values | Blank emails and booking dates |
 
-It uses a fixed random seed, so it produces the same file every time. The same file was imported into HubSpot for the HubSpot demo; HubSpot itself rejected 7 rows whose email was already used, so it holds 93 contacts.
+It uses a fixed random seed, so it produces the same file every time. The same file was imported into HubSpot for the HubSpot demo; HubSpot didn't import 7 rows whose email was already used ("Duplicate alternate ID, 7 values not imported"), so it holds 93 contacts.
 
 ## Target schema
 
@@ -243,7 +244,6 @@ HUBSPOT_TOKEN=
 - Gemini's free tier allows a limited number of requests per day; when it runs out, mappings have to be typed by hand. There's no automatic retry yet when Gemini is busy.
 - On Streamlit Community Cloud, the SQLite log resets when the app restarts; a production version would keep the log in a hosted database.
 - Duplicate detection uses simple rules, so unusual spelling differences can be missed.
-- Phone cleaning is built for UAE mobile numbers by default; UAE landlines would need another rule.
 
 ## Hardest part
 
@@ -254,6 +254,10 @@ Getting HubSpot to work was the most frustrating part. HubSpot had changed how A
 ## What I'd add next
 
 Make it more efficient: one click of a button to pull, map, clean and migrate, without switching between tabs, with a person stepping in only where they're needed (low-confidence mappings and flagged rows).
+
+- Automatic retries when Gemini is busy
+- More sources, such as Salesforce and Google Sheets
+- Scheduled syncs, so new records move over on their own
 
 ## Built with
 
