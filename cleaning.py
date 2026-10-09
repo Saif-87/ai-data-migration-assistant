@@ -312,35 +312,41 @@ def clean_and_validate(df):
 
     # ----- Step 3: find likely duplicates -----
     # Same person = similar name AND same email or same phone.
-    # The first row is kept; later copies are flagged.
-    # We keep the first copy in the file, not the "best spelled" one. A person reviews
-    # the flagged rows anyway and can swap them if needed.
-    kept_rows = []  # rows we've seen that are not duplicates
+    # WHY: BOTH rows of a pair are flagged. The code can't know which one is right
+    # (the first row might be the one with the typo), so a person chooses which to keep.
 
+    # matches[i] lists the rows that row i matches, e.g. ["row 9 (Aimee Khare)"]
+    matches = []
+    for i in range(number_of_rows):
+        matches.append([])
+
+    # Compare every pair of rows once: row i with every row after it.
     for i in range(number_of_rows):
         name = cleaned.at[i, "customer_name"]
-        email = cleaned.at[i, "email"]
-        phone = cleaned.at[i, "phone"]
-
         if is_blank(name):
             continue  # can't compare without a name
 
-        is_duplicate = False
+        for j in range(i + 1, number_of_rows):
+            other_name = cleaned.at[j, "customer_name"]
+            if is_blank(other_name):
+                continue
 
-        for j in kept_rows:
+            email = cleaned.at[i, "email"]
+            phone = cleaned.at[i, "phone"]
             same_email = not is_blank(email) and email == cleaned.at[j, "email"]
             same_phone = not is_blank(phone) and phone == cleaned.at[j, "phone"]
-            other_name = cleaned.at[j, "customer_name"]
             same_name = similar_names(normalise_name(name), normalise_name(other_name))
 
             if (same_email or same_phone) and same_name:
-                message = f"Likely duplicate of row {j + 1} ({other_name})."
-                issues[i].append(("likely duplicate", message))
-                is_duplicate = True
-                break  # one match is enough
+                # Remember the match on BOTH rows (row numbers start at 1 for people).
+                matches[i].append(f"row {j + 1} ({other_name})")
+                matches[j].append(f"row {i + 1} ({name})")
 
-        if not is_duplicate:
-            kept_rows.append(i)
+    # One message per row, naming every row it matches.
+    for i in range(number_of_rows):
+        if len(matches[i]) > 0:
+            message = "Likely duplicate of " + ", ".join(matches[i]) + ". Choose which one to keep."
+            issues[i].append(("likely duplicate", message))
 
     # ----- Step 4: split into clean rows and flagged rows -----
     issue_text = []
