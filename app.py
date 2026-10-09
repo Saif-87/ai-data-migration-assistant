@@ -17,6 +17,7 @@ import streamlit as st
 from cleaning import clean_and_validate
 from database import CSV_FILE, DB_FILE, create_migration_log, load_csv, profile
 from mapping import MODEL, check_suggestions, suggest_mappings
+from migrate import TABLE_NAME, migrate
 from schema import FIELD_NAMES
 
 st.title("Data Migration Assistant")
@@ -63,6 +64,7 @@ if st.session_state.get("file_id") != file_id:
     st.session_state["suggestions"] = None
     st.session_state["mapping_error"] = None
     st.session_state["confirmed_mapping"] = None
+    st.session_state["migration_summary"] = None
 
 
 # ---------- 2. Data profile ----------
@@ -176,6 +178,7 @@ if st.button("Confirm mapping"):
             st.write("- " + problem)
     else:
         st.session_state["confirmed_mapping"] = current_mapping
+        st.session_state["migration_summary"] = None  # new mapping, so it can be migrated again
 
 confirmed_mapping = st.session_state["confirmed_mapping"]
 
@@ -194,6 +197,8 @@ else:
 # WHAT: rename the columns, then clean and check every row with cleaning.py.
 # WHY: show what was fixed automatically and which rows need a person to look at them.
 st.header("5. Cleaning results")
+
+clean_rows = None  # stays None until cleaning has run; section 6 checks this
 
 if confirmed_mapping is None:
     st.write("Confirm the mapping to see the cleaning results.")
@@ -230,12 +235,51 @@ else:
 
 
 # ---------- 6. Migrate and report ----------
-# WHAT: placeholders for the last two steps.
-# WHY: migrate.py and report.py aren't built yet, so the buttons are switched off for now.
+# WHAT: send the clean rows to Airtable with migrate.py, then show what happened.
+# WHY: only clean rows are sent. Flagged rows stay here until a person fixes them.
 st.header("6. Migrate and report")
 
-st.button("Migrate to Airtable", disabled=True)
-st.write("Coming soon: migrate.py will send the clean rows to Airtable.")
+if clean_rows is None:
+    # Cleaning hasn't run yet, so there is nothing to send.
+    st.button("Migrate to Airtable", disabled=True)
+    st.write("Confirm the mapping first. Then you can migrate the clean rows.")
+
+elif st.session_state["migration_summary"] is not None:
+    # WHY: switch the button off after a migration, so clicking twice doesn't
+    # create the same bookings twice in Airtable.
+    st.button("Migrate to Airtable", disabled=True)
+    st.write("These rows have already been migrated. Load a new file or confirm a new mapping to migrate again.")
+
+else:
+    st.write(f"This will send {len(clean_rows)} clean rows to the Airtable table '{TABLE_NAME}'. "
+             f"The {len(flagged_rows)} flagged rows are not sent.")
+
+    if st.button("Migrate to Airtable"):
+        progress_bar = st.progress(0)
+
+        # migrate() calls this after each batch of 10 rows, so the bar moves while sending.
+        def show_progress(rows_done, total_rows):
+            progress_bar.progress(rows_done / total_rows, text=f"Sent {rows_done} of {total_rows} rows")
+
+        st.session_state["migration_summary"] = migrate(clean_rows, show_progress)
+
+        # Run the page again so the button switches off straight away.
+        st.rerun()
+
+# Show the result of the last migration.
+migration_summary = st.session_state["migration_summary"]
+
+if migration_summary is not None:
+    if migration_summary["error"] is not None:
+        st.write(f"**Migration could not start:** {migration_summary['error']}")
+    else:
+        st.write(f"**Migration finished.** Run id: {migration_summary['run_id']}")
+        st.metric("Migrated to Airtable", migration_summary["migrated"])
+        st.metric("Failed", migration_summary["failed"])
+
+        if migration_summary["failed"] > 0:
+            st.write("**Rows that failed** (also saved in the migration_log table):")
+            st.dataframe(pd.DataFrame(migration_summary["failed_rows"]))
 
 st.button("Download report", disabled=True)
 st.write("Coming soon: report.py will build the migration report.")
