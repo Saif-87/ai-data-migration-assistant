@@ -7,11 +7,10 @@ The values are returned exactly as they are in HubSpot. Cleaning happens later,
 in cleaning.py, the same way as for a CSV.
 """
 
-import os
-
 import pandas as pd
 import requests
-from dotenv import load_dotenv
+
+from config import get_key
 
 CONTACTS_URL = "https://api.hubapi.com/crm/v3/objects/contacts"
 
@@ -32,12 +31,11 @@ PROPERTIES = [
 
 
 def get_token():
-    """Read the HubSpot token from .env, the same way mapping.py and migrate.py read their keys.
+    """Read the HubSpot token (from .env locally, or Secrets on Streamlit Cloud).
 
     The token is never printed or shown on screen.
     """
-    load_dotenv()
-    return os.getenv("HUBSPOT_TOKEN")
+    return get_key("HUBSPOT_TOKEN")
 
 
 def fetch_page(after):
@@ -75,7 +73,7 @@ def fetch_contacts():
     - on failure: None, a friendly error message
     """
     if not get_token():
-        return None, "HUBSPOT_TOKEN is not set. Add it to your .env file."
+        return None, "HUBSPOT_TOKEN is not set. Add it to your .env file (or the app's Secrets on Streamlit Cloud)."
 
     rows = []
     after = None  # None means "start at the first page"
@@ -88,7 +86,7 @@ def fetch_contacts():
             response = error.response        # HubSpot's reply that caused the error
             status = response.status_code    # e.g. 401
             if status == 401:
-                return None, "HubSpot didn't accept the token (401). Check HUBSPOT_TOKEN in your .env file."
+                return None, "HubSpot didn't accept the token (401). Check HUBSPOT_TOKEN in your .env file (or the app's Secrets)."
             if status == 403:
                 return None, ("The HubSpot token doesn't have permission (403). "
                               "It needs the crm.objects.contacts.read scope.")

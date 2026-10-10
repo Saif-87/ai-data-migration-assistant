@@ -8,13 +8,12 @@ because AI answers can be wrong.
 """
 
 import json
-import os
 
 import pandas as pd
-from dotenv import load_dotenv
 from google import genai
 from google.genai import errors, types
 
+from config import get_key
 from schema import FIELDS, FIELD_NAMES
 
 # gemini-3.8-flash is newer, but on the free tier it often replied "503 busy" (Oct 2026).
@@ -137,10 +136,9 @@ def suggest_mappings(df):
     - on success: (list of dicts with source_column, target_field, confidence, reason), None
     - on failure: [], a plain-English error message
     """
-    load_dotenv()
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = get_key("GEMINI_API_KEY")
     if not api_key:
-        return [], "GEMINI_API_KEY is not set. Add it to your .env file."
+        return [], "GEMINI_API_KEY is not set. Add it to your .env file (or the app's Secrets on Streamlit Cloud)."
 
     columns = list(df.columns)
 

@@ -7,15 +7,14 @@ result (migrated or failed) is written to the migration_log table in
 migration.db, so there is a record of what happened in each run.
 """
 
-import os
 import sqlite3
 import time
 from datetime import datetime
 
 import requests
-from dotenv import load_dotenv
 
 from cleaning import is_blank
+from config import get_key
 from database import DB_FILE, create_migration_log
 from schema import FIELDS
 
@@ -124,12 +123,13 @@ def migrate(clean_rows, on_progress=None):
         "error": None,
     }
 
-    # Read the Airtable settings from .env. The token is never printed or logged.
-    load_dotenv()
-    token = os.getenv("AIRTABLE_TOKEN")
-    base_id = os.getenv("AIRTABLE_BASE_ID")
+    # Read the Airtable settings (from .env locally, or Secrets on Streamlit Cloud).
+    # The token is never printed or logged.
+    token = get_key("AIRTABLE_TOKEN")
+    base_id = get_key("AIRTABLE_BASE_ID")
     if not token or not base_id:
-        summary["error"] = "AIRTABLE_TOKEN or AIRTABLE_BASE_ID is not set. Add them to your .env file."
+        summary["error"] = ("AIRTABLE_TOKEN or AIRTABLE_BASE_ID is not set. "
+                            "Add them to your .env file (or the app's Secrets on Streamlit Cloud).")
         return summary
 
     url = f"{API_URL}/{base_id}/{TABLE_NAME}"
