@@ -1,0 +1,23 @@
+{
+  "name": "hubspot_bookings",
+  "source_columns": [
+    "lastname",
+    "email",
+    "phone",
+    "destination",
+    "booked_on",
+    "travel_dt",
+    "price",
+    "booking_status"
+  ],
+  "mapping": {
+    "lastname": "customer_name",
+    "email": "email",
+    "phone": "phone",
+    "destination": "destination",
+    "booked_on": "booking_date",
+    "travel_dt": "travel_date",
+    "price": "amount_aed",
+    "booking_status": "status"
+  }
+}

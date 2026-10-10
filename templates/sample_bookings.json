@@ -1,0 +1,23 @@
+{
+  "name": "sample_bookings",
+  "source_columns": [
+    "Cust Name",
+    "E-mail",
+    "phone_no",
+    "Dest.",
+    "Booked On",
+    "travel dt",
+    "Price",
+    "STATUS"
+  ],
+  "mapping": {
+    "Cust Name": "customer_name",
+    "E-mail": "email",
+    "phone_no": "phone",
+    "Dest.": "destination",
+    "Booked On": "booking_date",
+    "travel dt": "travel_date",
+    "Price": "amount_aed",
+    "STATUS": "status"
+  }
+}

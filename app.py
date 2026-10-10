@@ -21,6 +21,7 @@ from mapping import MODEL, check_suggestions, suggest_mappings
 from migrate import TABLE_NAME, migrate
 from report import build_report
 from schema import FIELD_NAMES
+from templates import find_template, save_template, template_to_suggestions
 
 st.title("Data Migration Assistant")
 st.write("Move messy booking data into a clean system: AI suggests the mapping, "
@@ -153,27 +154,46 @@ st.write("Note: this demo uses Gemini's free tier, which allows only a few reque
 st.write("You can type a different target field in the table. Allowed names: " + ", ".join(FIELD_NAMES))
 st.write("Leave the target field empty if a column has no match.")
 
-# Gemini's answer for each file we've seen, e.g. {"sample_data/messy_bookings.csv": {...}, "hubspot-1": {...}}
+# The suggestions for each file we've seen (from a template or from Gemini),
+# e.g. {"sample_data/messy_bookings.csv": {...}, "hubspot-1": {...}}
 # WHY: the free tier allows only a few requests a day. Keeping one answer per file means
 # clicking around, or switching between CSV and HubSpot, never asks Gemini twice for the same data.
 if "gemini_answers" not in st.session_state:
     st.session_state["gemini_answers"] = {}
 gemini_answers = st.session_state["gemini_answers"]
 
-if st.button("Ask Gemini again"):
+ask_gemini_clicked = st.button("Ask Gemini again")
+if ask_gemini_clicked:
     # Forget the saved answer for this file, so Gemini is asked once more below.
     if file_id in gemini_answers:
         del gemini_answers[file_id]
     st.session_state["confirmed_mapping"] = None
 
-# Only call Gemini if we don't have an answer for this file yet.
-# An error is saved too, so a failed request isn't repeated on every click. Use "Ask Gemini again" to retry.
+# Only work out suggestions if we don't have an answer for this file yet.
 if file_id not in gemini_answers:
-    suggestions, mapping_error = suggest_mappings(df)
-    gemini_answers[file_id] = {"suggestions": suggestions, "error": mapping_error}
+    columns = list(df.columns)
+
+    # WHY: a matching template means data like this was mapped and confirmed before, so Gemini
+    # isn't needed. If the user clicked "Ask Gemini again", they want Gemini, so skip templates.
+    template = None
+    if not ask_gemini_clicked:
+        template = find_template(columns)
+
+    if template is not None:
+        suggestions = template_to_suggestions(template, columns)
+        gemini_answers[file_id] = {"suggestions": suggestions, "error": None, "template": template["name"]}
+    else:
+        # An error is saved too, so a failed request isn't repeated on every click.
+        suggestions, mapping_error = suggest_mappings(df)
+        gemini_answers[file_id] = {"suggestions": suggestions, "error": mapping_error, "template": None}
 
 suggestions = gemini_answers[file_id]["suggestions"]
 mapping_error = gemini_answers[file_id]["error"]
+template_name_used = gemini_answers[file_id]["template"]
+
+if template_name_used is not None:
+    st.write(f"**Loaded from template: {template_name_used}.** Gemini was not asked. "
+             "You can still edit the table, or click **Ask Gemini again**.")
 
 if mapping_error is not None:
     st.write(f"**Gemini error:** {mapping_error}")
@@ -241,6 +261,16 @@ else:
     if current_mapping != confirmed_mapping:
         st.write("**Note:** you changed the table after confirming. "
                  "Click **Confirm mapping** again to use your changes.")
+
+    # WHAT: save the confirmed mapping as a template, so data with the same columns skips Gemini next time.
+    template_name = st.text_input("Template name", placeholder="e.g. hubspot_bookings")
+    if st.button("Save as template"):
+        path, error = save_template(template_name, list(df.columns), confirmed_mapping)
+        if error is not None:
+            st.write(f"**Could not save the template:** {error}")
+        else:
+            st.write(f"**Saved template:** {path}. Data with the same column names will use it next time.")
+            st.write("(On the live demo, templates you save disappear when the app restarts.)")
 
 
 # ---------- 5. Cleaning results ----------
