@@ -65,9 +65,13 @@ The suggestions are checked in code: every target must be a real field, and no f
 
 Gemini is asked **once per file or HubSpot pull**, and the answer is remembered, so clicking around the page doesn't use extra requests. It's only asked again when the user clicks **Ask Gemini again**. If Gemini is busy or the free daily limit is used up, the app says so clearly and the user can type the mappings by hand.
 
+If the data's column names match a saved template, the mapping is loaded from the template instead of asking Gemini, with a note saying which template was used. The user can still edit it, or click **Ask Gemini again** to get Gemini's suggestions instead.
+
 ### 3. A person confirms
 
 The suggestions appear in an editable table. The user can accept or change any of them, and the data is only renamed and cleaned after they click **Confirm**.
+
+After confirming, the user can click **Save as template** and give it a name. The mapping is saved as a JSON file in `templates/`, so the next file or HubSpot pull with the same column names is mapped straight away.
 
 ### 4. Clean and validate
 
@@ -139,6 +143,8 @@ Problems found while testing, tracked as GitHub issues:
 | [#4](https://github.com/Saif-87/ai-data-migration-assistant/issues/4) | Gemini was asked again when switching sources, using up the free daily limit | Ask once per file and remember the answer |
 | [#5](https://github.com/Saif-87/ai-data-migration-assistant/issues/5) | UAE landline numbers were cleaned into wrong numbers (e.g. `04 123 4567` → `+971041234567`) | Accept 8-digit landlines as well as 9-digit mobiles: `04 123 4567` → `+97141234567` |
 
+**Features added:** reusable mapping templates. A confirmed mapping can be saved and is loaded automatically for data with the same column names, so Gemini isn't asked again for data it has already mapped.
+
 ## Sample data
 
 `generate_data.py` creates `sample_data/messy_bookings.csv`: 100 fake travel bookings made with the Faker library, made messy on purpose:
@@ -180,6 +186,8 @@ It uses a fixed random seed, so it produces the same file every time. The same f
 | `cleaning.py` | Cleans, validates and flags rows |
 | `migrate.py` | Sends clean rows to Airtable through its REST API |
 | `report.py` | Builds the migration report |
+| `templates.py` | Saves, finds and loads mapping templates |
+| `templates/` | Saved mapping templates (JSON), with examples for the sample CSV and for HubSpot |
 | `postman/` | Postman collection for testing the Airtable and HubSpot APIs |
 | `.env.example` | Lists the keys needed, with no real values |
 
@@ -236,6 +244,7 @@ HUBSPOT_TOKEN=
 - Built and tested on synthetic data for one scenario (travel bookings into Airtable).
 - Gemini's free tier allows a limited number of requests per day; when it runs out, mappings have to be typed by hand. There's no automatic retry yet when Gemini is busy.
 - On Streamlit Community Cloud, the SQLite log resets when the app restarts; a production version would keep the log in a hosted database.
+- Templates saved on Streamlit Community Cloud also disappear when the app restarts; the example templates in the repo always stay.
 - Duplicate detection uses simple rules, so unusual spelling differences can be missed.
 
 ## Hardest part
